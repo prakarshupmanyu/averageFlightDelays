@@ -36,6 +36,23 @@ import java.util.TreeMap;
 
 public class ComputeTopKFlightDelays extends Configured implements Tool {
 
+    /*
+    * This mapper is reads the given input, decides whether it is to be ignored or further processed and then
+    * outputs the route as key and <arrival delay>_<count> as value.
+    *
+    * Sample Input:
+    * CSV header - ..., ArrDelay, ..., Origin, Destination, ...
+    *              ..., 21, ........., BOS,    NYC, ........
+    *              ..., -29, ........, DCH,    BOS, ......
+    *              ..., -3, ........., BOS,    NYC, ........
+    *
+    * Sample Output:
+    * Format - Key, value
+    *      BOS-NYC, 21_1
+    *      DCH-BOS, -29_1
+    *      BOS-NYC, -3_1
+    * */
+
     public static class AverageFlightDelayMapper extends Mapper<LongWritable, Text, Text, Text> {
 
         private Text route = new Text();
@@ -73,8 +90,18 @@ public class ComputeTopKFlightDelays extends Configured implements Tool {
 
     /*
     * This combiner is required to incorporate large data as well as skewed data.
-    * It sums up the delays and the count of every route seen so far.
+    * It works on the output of AverageFlightDelayMapper sums up the delays and the count of every route seen
+    * so far by the Mapper.
     *
+    * Sample Input:
+    * Format - Key, <value 1, value 2, ....>
+    *        BOS-NYC, <21_1, -3_1>
+    *        DCH-BOS, <-29_1>
+    *
+    * Sample Output:
+    * Format - Key, value
+    *       BOS-NYC, 18_2
+    *       DCH-BOS, -29_1
     * */
     public static class AverageFlightDelayCombiner extends Reducer<Text, Text, Text, Text> {
 
@@ -96,8 +123,17 @@ public class ComputeTopKFlightDelays extends Configured implements Tool {
 
     /*
     * This reducer finally computes the average for every route after computing the sum of delays for a route and
-    * number of time that route is seen in the data.
+    * number of times that route is seen in the data and then computing the average.
     *
+    * Sample Input:
+    * Format - Key, <value 1, value 2, ....>
+    *     BOS-NYC, <18_2, 12_3>
+    *     DCH-BOS, <-29_1, 20_2, 0_3>
+    *
+    * Sample Output:
+    * Format - Key, value
+    *      BOS-NYC, 6.0
+    *      DCH-BOS, -1.5
     * */
     public static class AverageFlightDelayReducer extends Reducer<Text, Text, Text, DoubleWritable> {
 
@@ -131,6 +167,7 @@ public class ComputeTopKFlightDelays extends Configured implements Tool {
         private TreeMap<Double, Text> topRecMap = new TreeMap<>();
         private long k;
 
+        //setup function to initialize k for each mapper
         @Override
         public void setup(Context context){
             k = Long.parseLong(context.getConfiguration().get("numLargestFlightDelaysRequired"));
@@ -146,7 +183,6 @@ public class ComputeTopKFlightDelays extends Configured implements Tool {
             }
 
             String averageDelayStr = inputWords[1];
-
             double averageDelay = 0;
 
             try{
@@ -157,11 +193,13 @@ public class ComputeTopKFlightDelays extends Configured implements Tool {
 
             topRecMap.put(averageDelay, new Text(value));
 
+            //ensure that the size of treemap never exceeds k
             if(topRecMap.size() > k){
                 topRecMap.remove(topRecMap.firstKey());
             }
         }
 
+        //Cleanup function for each mapper to output top k routes from its corresponding input
         @Override
         protected void cleanup(Context context) throws IOException, InterruptedException{
             for(Text rec: topRecMap.values()){
@@ -170,12 +208,16 @@ public class ComputeTopKFlightDelays extends Configured implements Tool {
         }
     }
 
+    /*
+    * This reducer takes in the top k routes from each mapper and finds the top k out of all its input.
+    * For this design pattern to work, we need to ensure that we use only one reducer.
+    * */
     public static class TopKFlightDelaysReducer extends Reducer<NullWritable, Text, NullWritable, Text> {
 
         private TreeMap<Double, Text> topRecMap = new TreeMap<>();
-
         private long k;
 
+        //setup function to initialize k for each mapper
         @Override
         public void setup(Context context){
             k = Long.parseLong(context.getConfiguration().get("numLargestFlightDelaysRequired"));
@@ -186,7 +228,6 @@ public class ComputeTopKFlightDelays extends Configured implements Tool {
 
             for(Text rec: values){
                 String[] inputWords = rec.toString().split("\\t");
-
                 double averageDelay = Double.parseDouble(inputWords[1]);
 
                 topRecMap.put(averageDelay, new Text(rec));
