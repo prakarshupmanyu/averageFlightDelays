@@ -9,3 +9,11 @@ The data for the tasks can be found at [this link](https://drive.google.com/file
 The two tasks computed in this project are:
 1. For each route, calculate the average number of minutes that a flight is delayed.
 2. Find top k routes with largest average  arrival delay (k can be provided via command line).
+
+I managed this project using maven. Following command is used to run the map-reduce job:
+
+bin/hadoop jar ~/HousingAnywhere/codingchallenge/target/codingchallenge-1.0-SNAPSHOT.jar flightDelays.ComputeTopKFlightDelays \
+  -DinputDir=<path_to_input_csv_files> \
+  -Dtask1OutputDir=<path_to_store_output_of_task_1> \
+  -Dtask2OutputDir=<path_to_store_output_of_task_2> \
+  -DnumLargestFlightDelaysRequired=<value_of_k>
